@@ -1,7 +1,11 @@
 package main
 
-var age int32 = 45 // no problem
+import (
+	"fmt"
+
+	u "jorge.martin/hello/my-utils"
+)
 
 func main() {
-
+	fmt.Println(u.Add(10, 5))
 }

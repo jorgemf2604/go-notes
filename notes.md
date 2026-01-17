@@ -74,7 +74,51 @@ As a general rule, we should only declare variables in the package scope when th
 - variables declared outside functions have package scope (they can be accessed and modified from anywhere in the program). It makes it harder to track changes/read and debug.
 - concurrency is more difficult: when using concurrency in go we can have multiple goroutines accessing the same variable. If that variable has multiple points of modification across the package, the process of synchronization gets more complex.
 
-## 1.2.5 Scope (book) => add it above
+## 1.2.5 Shadowing a variable
+Shadowing happens when you declare a new variable with the same name as an existing one, but in a narrower scope. The inner variable hides the outer one.
+```
+x := 10
+
+if true {
+    x := 20 // shadows the outer x
+    fmt.Println(x) // prints 20
+}
+
+fmt.Println(x) // prints 10
+
+```
+### The most commong shadowing bug
+```
+var err error
+
+if something {
+    value, err := compute() // new err shadows outer err
+    if err != nil {
+        return err
+    }
+}
+
+fmt.Println(err) // still nil, even if compute() failed
+
+```
+How to avoid accidental shadowing:
+1. Use `=` instead of `:=`
+2. Declare variables earlier if needed
+```
+var err error
+var value int
+
+if something {
+    value, err = compute() // reassigns outer err
+    if err != nil {
+        return err
+    }
+}
+
+fmt.Println(err) // now reflects the real error
+
+```
+
 ## 1.2.6 Packages, folders, files and modules 
 - A package is a collection of go files under a folder. All the `.go` files in the folder share the same package name. All .go files in the same folder must use the same package name. The folder name does not matter to the compiler. The folder name and package name can be different (although it is often the same -> strong developer's convention). There are cases when it is OK to have a different names (e.g. the `internal` folder, a special folder in GO for internal use only, EXTERNAL packages (outside the app/module) are not allowed to import it. Internal will have inside different packages with different names such as auth or bd) 
 
@@ -102,14 +146,93 @@ Other people will import your module (or a package) using that path.
 import "github.com/jorgemf2604/myapp/utils"  // we are only importing the package utils in our module. 
 ```
 ## 1.2.7 Imports
-- how importing works 
-- exported vs exported
+Go looks for imports in three places: 
+1. the standard library:
+```
+import "fmt"     // standard library
+```
+2. Your module: 
+```
+package main
+
+import (
+	"fmt"
+
+	u "jorge.martin/hello/my-utils"
+)
+
+func main() {
+	fmt.Println(u.Add(10, 5))
+}
+
+// the name of my module inside go.mod is `jorge.martin/hello`
+// the name of my package is utils 
+// the name of the folder that contains the files of the utils package is `my-utils`
+// the alias used to refer to the package contained in the import path is `u`
+// The import path (what we write in quotes) is the module path (jorge.martin/hello) + the folder path (/my-utils). Go uses the import path to locate the code in disk or online (a github account is common). It does not care what the package is named inside that folder.
+// Because the import path can be a mouthful, you can use an alias to refer to it (it can be totally different from the package name inside the folder)
+```
+3. External packages (Go fetches these from the internet and stores them in your module cache.):
+```
+import "github.com/gin-gonic/gin"
+```
+
+### Type of imports 
+1. Single:
+```
+import "fmt"
+```
+2. Multiple: 
+```
+import (
+    "fmt"
+    "math"
+)
+```
+3. Renaming imports (alias):
+```
+import m "math"
+```
+4. Blank identifier (they run the package's init() function but does not bind any name, used in databases config):
+```
+import (
+    "database/sql"
+    _ "github.com/lib/pq" // PostgreSQL driver; imported for side‑effects only
+)
+
+```
+Why is the black identifier useful ? 
+The driver package runs its init() function. That init() registers the driver with database/sql under a name like "postgres". You never call anything from the driver package directly. If you imported it normally, Go would complain that the package is unused. So the blank identifier tells Go: “Import this package, run its initialization, but don’t bind it to a name (it is ok if I do not use anything from the package directly).”
+
+5. Dot import (import all exported names in your file's namespace). Not recommended.
+```
+import . "fmt"
+
+Println("hello") // no fmt.Println
+
+```
 ## 1.2.8 Package initialization 
+Go will load packages in dependency order (A package is initialized only after all the packages it depends on have been initialized): If main imports A, and A imports B, and B imports C, the initialization order is C -> B -> A -> main. The initialization of each package involves: 
+- Evaluate all package-level variables 
+- Run all init() functions in that package
 
+So the full sequence is: 
+1. Load packages in dependency order
+2. Initialize package-level variables (they will do this in the order they appear. If there are multiple files in the same package, go will initialize variables in lexical file name order, that is alphabetically by file name)
+3. Run all init() functions in that package
+4. Move on to the next package (repeat if needed)
+5. Finally run main.main()
 
+## 1.2.9 init() function 
+init() is a special function in Go that automatically runs (you never calls it yourself) after all package-level variables are initialized, before any other code in that package is used, and before main.main() runs. 
 
-
-
+- You can have multiple init() functions in the same file or across multiple files in the same package (they run in lexical file name order)
+- You cannot call init() yourself.
+- You cannot pass arguments.
+- You cannot return values from it. 
+- It runs once per package even when multiple packages import it. 
+- It runs after package-leve variables initialization.
+- If runs in dependency order: if main imports A, and A imports B, the order will be B.init() -> A.init() -> main.init() -> main.main() 
 
 # 1.3 Variable declarations 
 
