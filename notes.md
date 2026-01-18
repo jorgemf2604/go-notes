@@ -705,4 +705,10 @@ func main() {
 	fmt.Println(str) // Output: "123"
 }
 ```
+# 1.10 Categories of data types 
+1. Basic data types (numbers, strings and booleans)
+2. Aggregate data types (arrays and structs)
+3. Reference types (pointers, slices, maps, functions and channels)
+4. Interface types 
 
+# 2. Basic data types
