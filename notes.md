@@ -712,3 +712,271 @@ func main() {
 4. Interface types 
 
 # 2. Basic data types
+1. Numbers
+2. Strings 
+3. Booleans 
+
+# 2.1 Numbers
+We can divide them in 3 groups:
+- Integer types
+- Floating-point types
+- Complex types
+
+## 2.1.1 Integer types 
+- int8
+- int16
+- int32
+- int64
+- uint8
+- uint16
+- uint32
+- uint64
+- byte = is an alias for uint8
+- int = on a 32-bit CPU is a int32 and on most^1 64-bit CPU is a int64. Integer literals default to being of type int.
+- uint = same rules as int but it is unsigned (0 or positive).
+- rune = alias for an int32
+- uintptr = it is used to hold pointer-sized integers. A 32-bit pointer on a 32-bit system and a 64-bit pointer on a 64-bit system.
+
+NOTE: In the beginning, when GO was created, the language allowed more flexibility and some compilers could choose different int/uint sizes depending on implementation details. So you may read some outdated info in books like "Some uncommon 64-bit CPU architectures use a int32. Go supports some of them: (e.g. amd64p32)". That is not true anymore, the GO teams treats the size of int/uint as effectively fixed by architecture. All major compilers (gc, gccgo, tinygo) follow the same rule. Therefore, an int/uint is 32 bits in a 32-bit system and 64 bits in a 64-bit system. 
+### 2.1.1.1 Zero value of an int
+It is zero 
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	var number int
+	fmt.Println(number) // 0
+}
+
+```
+
+## 2.1.1.2 Default type of a integer literal
+It is an int
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	number := 34
+	fmt.Printf("The value %v is of type %[1]T\n", number) // The value 34 is of type int
+}
+
+```
+
+## 2.1.1.3 Range of int
+- Signed numbers: -2^(n-1) to 2^(n-1) - 1
+- Unsigned numbers: 0 to 2^(n) - 1 
+
+NOTE: GO provide unsigned numbers but it is a good idea to use singned numbers (like int) for quantities that cannot be negative, such as the length of an array. For example, the built-in `len` function returns a signed int. The alternative would be problematic:
+
+```
+medals := []string{"gold", "silver", "bronze"}
+for i := len(medals) - 1; i >= 0; i-- {
+	fmt.Println(medals[i])   // bronze, silver, gold
+} 
+
+// After the 3 interation, in which i == 0, the i-- statement would cause i not to become -1 but 2^64-1, and the program would panic trying to access an element outside the bounds of the slice.
+```
+
+## 2.1.1.4 Operators 
+1. There are binary operators for:
+- arithmetic
+- logic
+- comparison
+- bitwise operations
+
+2. There are unary operators: (+ and -). Both operators do not mutate the original value, they produce a new value. The unary plus (+x) returns the value unchanged (does nothing). The unary minus (-x) negates a number: if x is positive, -x is negative, if x is negative, -x is positive, if x is zero, -x is still zero. Both operators preverse the operands' type (e.g. if x is an int, -x will be a int).
+
+There is a order of predecende in these operators (do not memorize it, use parenthesis to clarify)
+
+## 2.1.1.5 Type conversion with int
+Normally, explicit conversion is required to convert a value from one type to another. 
+Converting a floating-point number to an int will discard any fractional part, truncating towards zero. 
+
+## 2.1.1.6 int are comparable and can be ordered. 
+Integers (and all of the rest basic types: booleans, numbers, strings) are comparable (we can use == or != on them). Furthermore, integers, floating-point numbers and strings are ordered (we can use >, <, etc.). No other data types are ordered. 
+
+## 2.1.1.7 Module operator
+The sign of the remainder is always the same as the sign of the dividend.
+5%3 is 2
+5%-3 is 2
+-5%3 is -2
+-5%-3 is -2
+
+## 2.1.1.8 Division operator
+- Integer division truncates the result :  5/4 is 1
+- If we divide an integer by zero, GO will panic
+
+# 2.1.2 Floating-Point Numbers
+Go provides two sizes of floating-point numbers, `float32` and `float64`. A float32 provides approximately six decimal difits of precision, whereas a float64 provides about 15 digits. 
+
+## 2.1.2.1 Zero value of floating-point numbers
+It is zero
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	var number float64
+	fmt.Println(number) // 0
+}
+```
+
+## 2.1.2.2 Default type of floating type literals 
+float64
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	number := 5.21
+	fmt.Printf("The type of %v is %T\n", number, number) // The type of 5.21 is float64
+}
+```
+## 2.1.2.3 Floating-point division
+Dividing a non-zero floating-point variable by 0 returns +Inf or -Inf.
+Dividing a a floating-point variable set to zero by 0 retuns NaN (not a number)
+
+```
+func main() {
+	var num1 float64 = 5.5
+	var num2 float64 = 0
+	result := num1 / 0
+	fmt.Println(result) // +Inf
+	result2 := num2 / 0
+	fmt.Println(result2) // NaN
+}
+```
+
+## 2.1.2.4 Floating-point comparisons
+Go let us use == and != to compare floats, but do not do it. Instead, define a maximum allowed variance (epsilon) and see if the difference between the floats is less that that.
+
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+func areEqual(a, b, epsilon float64) bool {
+    return math.Abs(a-b) <= epsilon
+}
+
+func main() {
+    num1 := 0.1 + 0.2
+    num2 := 0.3
+    epsilon := 1e-9 // Define your tolerance (e.g., 1e-9)
+
+    if areEqual(num1, num2, epsilon) {
+        fmt.Println("The numbers are equal within the specified tolerance.")
+    } else {
+        fmt.Println("The numbers are NOT equal.")
+    }
+}
+
+I HAVE A DOUBT THOUGH: this shouldn't work. Why does it work ?
+
+```
+func main() {
+	num3 := 0.1 + 0.2
+	num4 := 0.3
+	fmt.Printf("num3: %.70f\n", num3)
+	fmt.Printf("num4: %.70f\n", num4)
+	fmt.Println(num3 == num4)
+}
+
+// num3: 0.2999999999999999888977697537484345957636833190917968750000000000000000
+// num4: 0.2999999999999999888977697537484345957636833190917968750000000000000000
+// true
+```
+
+This happends only because Go treats numeric literals as high‑precision constants and reduces both sides to the same exact rational value before converting to float64. So both become the same binary64 number. This is a special case, don't rely on this, always use tolerance. 
+
+# 2.2 Strings
+There are two ways of thinking about strings:
+- What they are under the hood: a slice of bytes (alias for uint8).
+- What they look to us: a slice of runes (alias for int32 that represents UTF-8 encoded Unicode code point).
+
+## 2.2.1 The length of a string
+When we use the len() function on a string, we get the length in bytes. If what we want is to know the number of characters we can use `utf8.RuneCountInString` to know the number of characters in a string.
+
+```
+package main
+
+import (
+	"fmt"
+	"unicode/utf8"
+)
+
+func main() {
+	str := "Hello, 世界!"
+	length := utf8.RuneCountInString(str)
+	fmt.Printf("The number of characters in the string is: %d\n", length)
+	fmt.Printf("The number of bytes in the string is: %d\n", len(str))
+}
+
+// The number of characters in the string is: 10
+// The number of bytes in the string is: 14
+```
+
+## 2.2.2 Indixing and slicing with strings 
+Indexing a tring gives you a byte, not the rune/character. Slicing counts positions in bytes. Use len, index or slicing with strings only when you know you are dealing with a string that does not contain characters that take more that one byte. Another sollution is to use a for-range loop to iterate over code points and to use functions in the `strings` and `unicode.utf8` packages. 
+
+Some solutions
+-------------
+
+1. How to know the length of a string: Use utf8.RuneCountInString to know the number of characters in a string.
+2. How to index:  Convert your string into an slice of runes, index the rune you want and covert it into a string.
+```
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println(string("Hello"[1]))             //    e  ASCII only
+	fmt.Println(string([]rune("Hello, 世界")[1])) //  e  UTF-8
+	fmt.Println(string([]rune("Hello, 世界")[8])) //  界   UTF-8
+
+	fmt.Println([]rune("Hello, 世界"))            // [72 101 108 108 111 44 32 19990 30028]
+	fmt.Println([]rune("Hello, 世界")[8])         // 30028
+	fmt.Println(string([]rune("Hello, 世界")[8])) // 界
+}
+
+```
+3. How to slice: convert the string to a slice of runes, slice the rune, convert the rune slice into a string.
+```
+func main() {
+	str := "Hello, 世界"
+	runes := []rune(str)
+	sliced := string(runes[7:9]) // Slicing the Unicode string
+	fmt.Println(sliced)          // Output: 世界
+}
+
+```
+
+## 2.2.3 Unicode and UTF-8
+
+
+# 2.3 Booleans 
+- A boolean has only two possible values, true or false. 
+- There is no implicit conversion from a boolean value to a numeric value or vice versa. There are no truthy/falsy values in GO.
+- The zero value of a boolean is false 
+```
+package main
+
+import "fmt"
+
+func main() {
+	var isAdmin bool
+	fmt.Printf("The value %v is of type %[1]T\n", isAdmin) // The value false is of type bool
+}
+```
