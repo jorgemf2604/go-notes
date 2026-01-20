@@ -964,7 +964,95 @@ func main() {
 ```
 
 ## 2.2.3 Unicode and UTF-8
+Unicode is a standard, UTF-8 is an encoding. 
 
+- Unicode is a massive catalog of characters and each character has a unique number (code point).
+- UTF-8 is one of several ways of encode Unicode code points into bytes. They are diffent encodings for Unicode (e.g. UTF-32 wich uses 4 bytes for every code point). UTF-8 is a variable encoding: from 1 to 4. It lets you use only 1 byte to represent the Unicode characters which values are below 128 (most letters, numbers and punctuation in the English language). It expands up to for bytes for more complex characters. UTF-8 was created by Ken Thompson and Robert Pike, 2 of the creators of Go.
+
+A string is a sequence of bytes, but GO assumes those bytes represent UTF-8 encoded text. Go expects UTF-8:
+- Source files must be UTF-8
+- String literals are parsed as UTF-8
+- for range loop assumes UTF-8
+- Many standard library functions assume UTF-8
+But Go does not enforce UTF-8:
+- Invalid UTF-8 is allowed. 
+- You can treat a string as a row binary data. 
+
+Go is Unicode-friendly but it can be low-level and byte-oriented.
+
+## 2.2.4 String literals 
+There are two types: interpreted literals and raw string literals. 
+
+## 2.2.5 Strings are immutable 
+Strings in GO are immutable. 
+
+```
+s := "hello"
+s[0] = 'H' // compile error: cannot assign to s[0]
+
+```
+
+```
+s := "hello"
+t := "H" + s[1:]
+fmt.Println(t) // Hello
+// this is allowed: you are creating a new string
+```
+
+Workaround: strings are immutable but you can convert the string to a slice of runes, change the rune un the slice, and convert the slice of runes into a new string.
+
+```
+r := []rune("你好")
+r[0] = '您'
+s := string(r)
+fmt.Println(s) // 您好
+
+```
+
+## 2.2.6 Strings under the hood and complexity of slicing and the len function
+Under the hood, a string is a two-field descriptor:
+- with a pointer to immutable bytes 
+- the length (number of bytes)
+
+```
+// pseudocode representation of a string under the hood
+type string struct {
+    ptr *byte  // pointer to the first byte
+    len int    // number of bytes
+}
+
+```
+
+- Strings store bytes, not characters.
+- String does not store capacity (like slices). 
+
+
+This is why:
+1. slicing a string does not copy bytes (zero copy slicing)
+```
+s := "hello world"
+t := s[:5] // "hello"
+
+```
+t becomes a new string header:
+ptr → points to the same underlying byte array as s
+len → 5
+
+No bytes are copied.
+Only the descriptor (pointer + length) is new. That is why slicing a string in GO has O(1) complexity.
+
+***This is possible because strings are immutable, so sharing memory is always safe.***
+
+2. len(s) is an O(1) operaration. Why are we storing the length of the array? We could use just a pointer and have the len() function iterate over every element of the array until reaching some kind of null terminator (like the C language does). Go prefers to store the pointer and the length in a heavier 'object' so retrieving the len is a O(1) operation instead of O(n). In C using the strlen function in a loop condition can be diabolical.
+
+## 2.2.7 Complexity of string concatenation
+In languages with immutable strings, each concatenation must allocate a new string and copy the contents of both operands. This makes a single concatenation O(M+N), and repeated concatenation in a loop O(N²) overall.
+
+Languages with mutable strings or builder types avoid this cost by appending into a growable buffer. In these cases, repeated concatenation is O(N).
+
+Go’s strings are immutable, so concatenation using + or fmt.Sprintf inside a loop is O(N²). To avoid this, Go provides strings.Builder, which uses a growable byte buffer. Appending to a strings.Builder is amortized O(1), and building a string of total length N is O(N).
+
+NOTE: What does amortized O(1) means? => An operation is amortized O(1) amortized when most individual operations are constant time, occasionally an operation is more expensive (like O(n)), but spread across many operations, the average cost of the operations stays constant. Classic example: 	Dynamic array growth. Imagine a slice doubling its capacity when full: Most append calls just write a value → O(1). Occasionally, the slice must grow: allocate a new array, copy all existing elements → O(n). But this expensive step happens rarely (logarithmically), so the average cost per append stays constant.
 
 # 2.3 Booleans 
 - A boolean has only two possible values, true or false. 
