@@ -1068,3 +1068,254 @@ func main() {
 	fmt.Printf("The value %v is of type %[1]T\n", isAdmin) // The value false is of type bool
 }
 ```
+
+# 3. Aggregate types
+# 3.1 Arrays 
+1. An array in GO is a fixed-size contiguous block of memory. 
+2. They are composed of one type only (we cannot mix different data types in the array).
+3. The size of the array is baked into the type: [3]int and [4]int are different types.   
+4. Arrays are value types (the actual data is stored in the variable, assigning it to another variable copies the entire value, passing it to a function passes a copy, mutating the copy does not affect the original).
+5. It is a contiguous block of memory with no header, no metadata, no pointer indirection. This makes indexing extremely fast ( a[i] = \*(base + i\*sizeof(T)) )
+```
+var a [4]int
+
+// In memory looks like this:
+// | int | int | int | int |
+```
+## 3.1.1 Arrays uses
+Some use cases:
+- Hash keys. Cryptographic hashes return fixed-size outputs, and Go’s crypto packages use arrays for this reason.
+- Avoid allocations by keeping the data on the stack (if they don't escape). Because arrays are value types with fixed size, the compiler can keep them on the stack, avoiding heap allocations.
+- Interop with the C language where fixed-sized buffer matter. C APIs often expect fixed-size arrays, not pointers to dynamically sized memory.
+- Embeding arrays inside structs for predictable memory layout. When you embed arrays inside structs, the struct becomes a pure value type with no internal pointers. The struct has a stable, predictable memory layout. No hidden allocations. Can be copied safely. Can be compared if all fields are comparable.
+
+Even if you are not interested in these cases, arrays are important to understand because they provide backing store for slices, that are more used.  
+
+## 3.1.2 Array declaration
+1. Basic array declaration 
+```
+var a [5]int
+// declares an array of exactly 5 ints
+// all elements are zero-initialized:  [0 0 0 0 0]
+// the type is [5]int
+```
+
+2. Declaration with initialization
+```
+var a = [3]int{1, 2, 3}
+b := [3]int{4, 5, 6}    // short syntax
+```
+
+3. Inferred length 
+```
+a := [...]int{10, 20, 30, 40}
+```
+
+4. Partial initialization
+```
+a := [5]int{2: 100}   // [0 0 100 0 0]
+
+```
+
+5. Arrays of structs 
+```
+type Point struct {
+    X, Y int
+}
+
+points := [2]Point{
+    {1, 2},
+    {3, 4},
+}
+
+```
+
+5. Nested arrays
+```
+matrix := [3][3]int{}
+
+```
+
+==================== Arrays in other situations =======================
+
+6. Arrays of structs 
+```
+type Point struct {
+    X, Y int
+}
+
+points := [2]Point{
+    {1, 2},
+    {3, 4},
+}
+
+```
+
+7. Array declaration inside a struct
+```
+type Packet struct {
+    Header [4]byte
+    Body   [128]byte
+}
+// This is common in protocols, crypto, and binary formats.
+```
+
+8. Array of pointers 
+```
+var arr [3]*int
+// Still a fixed-size array — only the element type changes.
+```
+
+9. Array returned from a function
+```
+func makeID() [16]byte {
+    var id [16]byte
+    // fill id...
+    return id
+}
+```
+
+10. Array literal assigned to a variable
+```
+a := [3]int{1, 2, 3}
+b := a // full copy
+
+```
+
+## 3.1.3 Comparability
+Arrays are comparable. Arrays are value types, their size is part of the type, and the compiler knows exactly how to compare them. Two arrays can be compared if:
+- They have the same length
+- They have the same element type
+- The element type itself is comparable 
+
+```
+[3]int == [3]int   // OK
+[3]int == [4]int   // compile error (different types)
+
+```
+```
+[2][]int           // not comparable (slice elements are not comparable)
+
+```
+
+
+As long as the struct is comparable, the array is comparable.
+```
+type Point struct {
+    X, Y int
+}
+
+a := [2]Point{{1, 2}, {3, 4}}
+b := [2]Point{{1, 2}, {3, 4}}
+
+fmt.Println(a == b) // true
+
+```
+
+## 3.1.4 Working with arrays is hard
+1. The size of the array is part of the type of the array and you cannot use type conversion.
+
+```
+var a [3]int
+var b [4]int
+
+a = b // compile error: cannot use b (type [4]int) as type [3]int
+
+```
+
+```
+func main() {
+	var x = [4]int{1, 2, 3, 4}
+	var y = [3]int{1, 2, 3}
+	x = [4]int(y) // error: IvalidConversion
+}
+```
+2. You cannot use a variable to specify the size of an array.
+```
+n := 5
+var a [n]int // compile error: n is not a constant
+
+```
+
+3. You cannot write a function that works with arrays of any size, you must specify the size. If you want to write a function that works for a collection of any size use slices or generics.
+
+```
+func makeArray(n int) [n]int { // compile error
+    return [n]int{}
+}
+
+```
+
+4. No dynamic resizing.
+
+# 3.2 Structs 
+## 3.2.1 Structs under the hood
+1. A continous block of memory 
+```
+type User struct {
+    Age   int32
+    Score int64
+    Flag  bool
+}
+
+// memory
+//   | Age (4 bytes)  | padding (4 bytes) |
+//   | Score (8 bytes)                   |
+//   | Flag (1 byte)  | padding (7 bytes) |
+// total 24 bytes
+
+// Everything is laid out in order, with no pointers or metadata unless you explicitly add them. Why padding? Go align fields so the CPU access them efficiently. 
+```
+
+The order of the fields is important and affect size. 
+
+Example of normal order:
+
+```
+type Bad2 struct {
+    A int32
+    B int64
+    C int32
+}
+
+//  | A (4) | padding (4) |
+//  | B (8) |
+//  | C (4) | padding (4) |
+// total 24 bytes
+```
+
+Reordered: 
+
+```
+type Good2 struct {
+    B int64
+    A int32
+    C int32
+}
+
+//  | B (8) |
+//  | A (4) | C (4) |
+//  16 bytes (same fields, 33% smaller in size)
+
+```
+
+Rule of thumb when sorting fields:
+- Write fields from largest to smallest
+- Group fields of the same size together
+- Put booleans and bytes at the end. 
+
+Doing this is matters in performance-critical code or with large arrays of structs (if the array has millions of elements, saving 8 bytes per struct is huge)
+
+2. Struct are value types
+
+3. No hidden pointers unless you add them
+
+4. The compiler try to keep them in the stack
+
+5. Struct comparision
+
+6. Struct embedding under the hood 
+
+7. Methods and receivers 
+
+8. Structs and the GO ABI (small structs may be passed in registers)
