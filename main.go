@@ -1,16 +1,19 @@
 package main
 
-import (
-	"fmt"
-	"unicode/utf8"
-)
+import "fmt"
 
-func main() {
-	str := "Hello, 世界!"
-	length := utf8.RuneCountInString(str)
-	fmt.Printf("The number of characters in the string is: %d\n", length)
-	fmt.Printf("The number of bytes in the string is: %d\n", len(str))
+type Employee struct {
+	name    string
+	age     int
+	balance int
 }
 
-// The number of characters in the string is: 10
-// The number of bytes in the string is: 14
+func (e *Employee) deposit(amount int) {
+	e.balance += amount
+}
+
+func main() {
+	employee1 := Employee{"Jorge", 45, 1000}
+	employee1.deposit(2000)
+	fmt.Println(employee1.balance) // 3000
+}

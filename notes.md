@@ -1306,16 +1306,451 @@ Rule of thumb when sorting fields:
 
 Doing this is matters in performance-critical code or with large arrays of structs (if the array has millions of elements, saving 8 bytes per struct is huge)
 
-2. Struct are value types
+2. Struct are value types: In GO, a struct is not a reference type. A struct is	a value, just like an int or a float64. That means:
+- Assigning a struct copies all its fields: that is why we should use pointers for large structs. 
+- Passing a struct to a function copies it
+- Methods on value receivers operate on a copy (does not mutate the original)
 
-3. No hidden pointers unless you add them
+3. No hidden pointers unless you add them: A struct in GO is a flat block of memory (continuous bytes), laid out in field order, padded for alignment, and coppied as a whole when assignment. There is no hidden header, no reference count, no runtime metadata stored inside the struct. If a struct contains pointers, it is because you put them there. 
 
-4. The compiler try to keep them in the stack
+```
+type Node struct {
+    Value int
+    Next  *Node
+}
 
-5. Struct comparision
+```
+The GO compiler tracks pointers, but even in these cases the struct does not store metadata. The metadata lives inside the type descriptor, not in the struct instances. Struct instances stay as a pure data blob.  
 
-6. Struct embedding under the hood 
+4. The compiler try to keep them in the stack. Go compiler prefers stack allocation whenever possible because:
+- The stack is fast
+- Allocation is just pointer bumping (*)
+- Deallocation is free (pop the stack frame)
 
-7. Methods and receivers 
 
-8. Structs and the GO ABI (small structs may be passed in registers)
+All of this, have implications:
+- If a struct does no escape its scope, it stays on the stack.
+```
+func f() {
+    p := Point{1, 2}
+    fmt.Println(p.X)
+}
+
+// p is stack allocated because it never leaves the function and no pointer to it escapes. This is true even for large structs. 
+
+```
+
+- If a struct escapes, it moves to the heap.
+```
+func f() *Point {
+    p := Point{1, 2}
+    return &p
+}
+
+// The compiler rewrites this as a heap allocation.
+```
+- Passing a struct by value helps keep it on the stack
+```
+func process(p Point) { ... }
+
+```
+- Pointer receivers do NOT automtically cause heap allocation.
+```
+func (p *Point) Move() { p.X++ }
+// Calling this does not force Point onto the heap. The compiler only allocates on the heap if the pointer itselft escapes.	
+```
+
+- The struct size does not matter. Even a huge struct stays on the stack if it doesn’t escape:
+```
+type Big struct {
+    Data [4096]byte
+}
+
+func f() {
+    b := Big{} // stays on stack if no escape
+}
+
+```
+
+5. Struct comparision. A struct type is automatically comparable when every field is comparable. Comparable types include: numeric types, booleans, strings, pointers, channels, arrays and structs (recursevely, if all fields are comparable). Not comparable: slices, map and functions. 
+
+6. Structs and the GO ABI (small structs may be passed in registers). Go’s modern ABI (post‑Go 1.17) is register‑based and much more efficient than the older stack‑only ABI. Under the current GO ABI, small structs with register-friendly fields (e.g. ints) may be passed entirely in registers. 
+
+ABI =>  think of ABI (Application Binary Interface) as the rules of the road that all compiled Go code must follow. 
+
+## 3.2.2 Struct declaration
+1. Declaring a struct with a name typed:
+```
+type Person struct {
+    Name string
+    Age  int
+}
+
+p := Person{"Alice", 30}
+p2 := Person{Age: 40} // keyed literal
+```
+
+2. Anonymous Structs (without a type name):
+```
+p := struct {
+    Name string
+    Age  int
+}{
+    Name: "Alice",
+    Age:  30,
+}
+
+```
+
+```
+var person struct {
+	name string
+	age int
+	pet string
+}
+
+person.name = "Jorge"
+person.age = 45
+person.pet = "dog"
+
+// another way od declaring an anonymous struct. The firt one is more common
+```
+
+Anonymous struct are useful when the struct is used only once, : (e.g. in testing or marshalling).
+```
+tests := []struct {
+    input string
+    want  int
+}{
+    {"hello", 5},
+    {"go", 2},
+}
+
+```
+
+```
+payload := struct {
+    Name string `json:"name"`
+    Age  int    `json:"age"`
+}{
+    Name: user.Name,
+    Age:  user.Age,
+}
+
+json.Marshal(payload)
+
+```
+
+## 3.2.3 Zero value 
+All fields are set to their own zero values
+```
+type User struct {
+    Name string
+    Age  int
+    Active bool
+}
+
+var u User   
+
+// the value of Name is "", the value of Age is 0, and the value of Active is false. 
+
+```
+## 3.2.4 Struct conversion
+Struct conversion is when you explicitly convert one struct type into another:
+```
+var b B = B(a)
+// This is only allowed when the two struct types have identical field sets and identical field order.
+```
+
+This is only allowed if:
+- They have the same number of fields
+- The fields appear in the same order
+- The fields have identical types
+- The fields have identical tags (tags must match exactly)
+
+Assigment requires the same type:
+```
+package main
+
+func main() {
+	type Employee struct {
+		name string
+		age  int
+	}
+
+	type Person struct {
+		name string
+		age  int
+	}
+
+	a := Employee{"Jorge", 34}
+	var person1 Person = a // cannot use a (variable of struct type Employee) as Person value in variable declaration.
+}
+```
+
+Conversion creates a copy of the target type: 
+```
+package main
+
+import "fmt"
+
+func main() {
+	type Employee struct {
+		name string
+		age  int
+	}
+
+	type Person struct {
+		name string
+		age  int
+	}
+
+	a := Employee{"Jorge", 34}
+	var person1 Person = Person(a)
+	fmt.Println(person1) // {Jorge 34}
+}
+
+```
+
+## 3.2.5 Name Struct literals
+There are two types:
+1. Keyed form (the order does not matter, and you don't need to specify all fields):
+```
+package main
+
+import "fmt"
+
+func main() {
+	type Employee struct {
+		name    string
+		age     int
+		balance int
+	}
+
+	employee1 := Employee{age: 45, name: "Jorge"}
+	fmt.Println(employee1) // {Jorge  45   0}
+}
+
+```
+2. Positional form (order matters, and you need to specify all fields):
+```
+package main
+
+import "fmt"
+
+func main() {
+	type Employee struct {
+		name    string
+		age     int
+		balance int
+	}
+
+	employee1 := Employee{"Jorge", 45, 1000}
+	fmt.Println(employee1) // {Jorge  45   1000}
+}
+```
+
+## 3.2.6 Methods
+A method are functions associated with a type. A method is a function with a special parameter called a receiver. In the case of a struct types it looks like this:
+
+```
+package main
+
+import "fmt"
+
+type Employee struct {
+	name    string
+	age     int
+	balance int
+}
+
+func (e *Employee) deposit(amount int) {
+	e.balance += amount
+}
+
+func main() {
+	employee1 := Employee{"Jorge", 45, 1000}
+	employee1.deposit(2000)
+	fmt.Println(employee1.balance) // 3000
+}
+```
+### Two kinds of receivers 
+1. Value receiver: the value receives a copy of the struct, does not mutate the original struct.
+```
+func (p Point) Length() int {
+    return p.X*p.X + p.Y*p.Y
+}
+
+```
+2. Pointer receiver: the value receives a pointer to the struct (useful, avoid copying large structs), mutation affects the original struct (required if we need to modify the original struct).  
+```
+func (p *Point) Move(dx, dy int) {
+    p.X += dx
+    p.Y += dy
+}
+
+```
+### Automatic address-taking 
+1. You can call a pointer-receiver method on a value:
+```
+p := Point{1, 2}
+p.Move(10, 20) // Go automatically does (&p).Move(...)
+
+```
+
+2. You can call a value-receiver method on a pointer:
+```
+pp := &Point{1, 2}
+pp.Length() // Go automatically dereferences . (*ptr).Method()
+
+```
+
+### Method sets 
+A method set is the collection of methods that a type exposes.
+Let’s say you have:
+```
+type T struct{}
+func (t T)  A() {}
+func (t *T) B() {}
+
+```
+
+The method set of T (a value) is only A(). The method set of *T (a pointer) is A() and B(). A pointer can always be dereferenced to get a value, but a value cannot always be addressed to get a pointer. 
+
+Automatic address‑taking does NOT change method sets. You can call a pointer‑receiver method on a value, but this does not mean T has method B. 
+```
+t := T{}
+t.B() // Go rewrites to (&t).B()   // even if we are writing t.B(), t does not have a B() method, &t does.
+
+```
+It’s just syntactic sugar for method calls. When checking interface implementation, Go uses the method set, not the sugar.
+ 
+
+## 3.2.7 Embedding structs 
+```
+type A struct {
+    X int
+}
+
+type B struct {
+    A   // embedded
+    Y int
+}
+
+```
+Under the hood, Go treats this exactly as:
+```
+type B struct {
+    A A
+    Y int
+}
+
+```
+This is not inheritance, just composition.
+
+1. Embedding gives you field promotion and method promotion:
+- Field promotion: you can access A fields directly through B:
+```
+b := B{}
+b.X = 10   // promoted. The compiler rewrites this to b.A.X = 10
+b.Y = 20
+
+```
+- Method promotion: 
+```
+// If A has methods:
+func (a A) Foo() {}
+func (a *A) Bar() {}
+
+```
+then 
+```
+b.Foo() // becomes b.A.Foo()
+b.Bar() // becomes (&b.A).Bar()
+
+```
+
+### Compile‑time rewriting, not dynamic dispatch.
+In Go, method calls on embedded structs (and methods in general) use compile‑time rewriting, not dynamic dispatch. This is one of the most important distinctions between Go and classical OOP languages like Java.
+
+```
+type A struct{}
+func (A) Foo() {}
+
+type B struct {
+    A
+}
+
+b.Foo()  // Foo actually belongs to an embedded field
+
+```
+Go does not perform any runtime lookup. Instead, the compiler rewrites the call to: b.A.Foo(). This happens before the program runs. There is no vtable, no dynamic dispatch, no runtime method resolution. It’s just syntactic sugar. 
+
+What “dynamic dispatch” would look like (but Go does NOT do)? In classical OOP: The runtime looks up the method in a vtable. The actual method called depends on the runtime type. Overriding changes behavior dynamically. Go does none of this for struct methods.
+
+### Embedding vs inheritance 
+1. Core idea:
+
+| Concept    | 	Go embedding                            | OOP Inheritance                          |
+| ---------  | ---------------------------------------- | ---------------------------------------- |
+| What is it | Composition: one struct contains another | Hierarchy: on class derives from another |
+| Relationship | Has-a | Is-a |
+| Mechanism | Compile-time/ method promotion  | Runtime polymorphism + class hierarchy |
+
+2. How methods are resolved:
+
+| Aspect     | 	Go embedding                            | OOP Inheritance                          |
+| ---------  | ---------------------------------------- | ---------------------------------------- |
+| Method resolution | Compile time rewriting (b.A.Foo()) | Dynamic dispatch via vtables |
+| Overrriding | 	Not supported | 	Fully supported | 
+| Runtime cost | Zero | some overhead |
+
+
+3. Mental model:
+
+- Embedding = composition + compile‑time promotion  
+- Inheritance = hierarchy + runtime polymorphism
+
+### Method sets with embedding 
+When you embed a struct inside another struct, Go promotes the embedded type’s methods into the outer type’s method set. But the promotion follows the same method‑set rules as if the embedded field were a normal field.
+
+```
+type A struct{}
+func (A) Foo() {}
+func (*A) Bar() {}
+type B struct { 
+	A 
+}
+
+// Method set of B (value): Foo() NOT Bar()
+// Method set of *B (pointer): FOO AND Bar()
+```
+
+Automatic address‑taking does NOT change method sets: 
+
+```
+b := B{}
+b.Bar() // allowed. B has not a Bar() method. This is rewrites to (&b).Bar()
+```
+### Embedding chains
+An embedding chain is when a struct embeds another struct, which itself embeds another struct, and so on.
+```
+type A struct {
+    X int
+}
+
+type B struct {
+    A
+}
+
+type C struct {
+    B
+}
+
+var c C c.X = 10   // The compiler rewrites this to: c.B.A.X = 10
+
+```
+# 4. Maps (reference types)
+
+# 5. Slices (reference types)
+
