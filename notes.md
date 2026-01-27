@@ -1751,6 +1751,466 @@ var c C c.X = 10   // The compiler rewrites this to: c.B.A.X = 10
 
 ```
 # 4. Maps (reference types)
+A map is a pointer to to a runtime map header (a descriptor), which in turn points to a bucket that holds the actual key/value pair.
+
+map variable
+    ↓
+[ fat pointer descriptor ]
+    ↓
+pointer to hmap
+    ↓
+hmap struct
+    ↓
+pointer to buckets
+    ↓
+bucket array
+    ↓
+key/value pairs
+
+##  Is a map variable a pointer? 
+It is what we call a FAT pointer (a small descriptor containing a pointer to the hmap). It is not a RAW pointer type. The descriptor contains a pointer to the map header plus type metadata.
+
+
+## What is inside the map header?
+The GO runtime defines an internal struct called hmap (not accessible directly). It contains a lof of info:
+- count: number of key/value pairs
+- B: log2 of number of buckets 
+- buckets: pointer to the bucket array
+- oldbuckets: pointer used during incremental growth
+- hash seed
+- flags
+
+## Implications
+- Passing a map to a function passes the pointer (mutations inside the function affects the caller's map)
+- Copying a map variable copies only the pointer (both variables refer to the same underlying structure)
+- A nil map is just a nil pointer to an hmap (you can read from it, but not write to it)
+
+## Time complexity
+Lookup, insert and delete are average O(1)
+
+## Values and keys
+- Keys must be comparable (no slices, maps or functions)
+- Values can be anything
+
+# 4.1 Creating maps
+1. Map literal
+```
+m := map[string]int{
+    "a": 1,
+    "b": 2,
+}
+```
+2. make()
+```
+m := make(map[string]int)
+fmt.Println(m)      // map[]
+fmt.Println(len(m)) // 0
+// Used when you want an empty map that you’ll populate dynamically.
+
+
+n := make(map[string]int, 100)
+// you can hint an expected size, this is not a hard limit, it is just a hint for bucket allocation.
+
+```
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	m := make(map[string]int)
+	fmt.Println(m) // map[]
+
+	b := map[string]int{"Spain": 32321, "UK": 12312}
+	fmt.Println(b) // map[Spain:32321 UK:12312]
+}
+
+```
+3. Nil Map
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	var m map[string]int     // m == nil
+	fmt.Println(len(m))      // A nil map has a length of 0
+	fmt.Println(m["potato"]) // 0 (zero value of int)
+}
+
+// safe to read from: attempting to read a nil map always returns the zero value for the map's value.
+// Unsafe to write to (panics)
+// A nil map has a length of 0.
+
+```
+
+## Why are nil maps useful?
+A nil maps means: this map has not been initialized, treat it as empty, but immutable. Nil maps behave like empty maps for reads. Writing to a nil map, panics.
+1. Allows lazy allocation (you can defer the allocation until the moment you actually needed)
+```
+func (c *Cache) Set(k string, v int) {
+    if c.m == nil {
+        c.m = make(map[string]int)
+    }
+    c.m[k] = v
+}
+```
+
+2. Maps, slices, channels, functions, and interfaces all have a meaningful zero value: nil. For maps specifically: nil map → “optional field not initialized yet”, empty map → “initialized but empty”. And the key: A nil map costs nothing. No allocation. No GC pressure. No constructor. This is why Go leans so heavily on nil-able types.
+
+	- You can create a struct with no constructor and still have a meaningful state.
+
+```
+type User struct {
+    Metadata map[string]string
+}
+
+// Metadata is nil, which means “no metadata provided”.
+// No extra flags. No pointers. No wrappers.
+
+```
+
+	- Reads are safe:
+
+```
+u := User{}
+fmt.Println(u.Metadata["role"]) // prints "", no panic
+// A nil map behaves like an empty map for reads.
+
+```
+	- Writes require explicit allocation:
+```
+u.Metadata["role"] = "admin" // panic
+// This prevents accidental mutation of uninitialized state.
+```
+
+	- So you can write idiomatic patterns like:
+
+```
+func (u *User) SetMeta(k, v string) {
+    if u.Metadata == nil {
+        u.Metadata = make(map[string]string)
+    }
+    u.Metadata[k] = v
+}
+
+```
+	- In many languages optional fields require pointers, in GO map headers contains a pointer already. Using *map is almost always a mistake. 
+
+```
+type User struct {
+    Metadata *map[string]string // unnecessary in Go
+}
+
+```
+
+A practical example (optional configurations fields):
+```
+type Config struct {
+    Flags map[string]bool
+}
+
+cfg := Config{} // zero value
+
+if cfg.Flags["debug"] {
+    // safe read, even though Flags is nil
+}
+
+if cfg.Flags == nil {
+    cfg.Flags = make(map[string]bool)
+}
+cfg.Flags["debug"] = true
+
+```
+You get optionality for free, with no runtime overhead until you actually need the map (make the zero value useful). 
+- Nil maps require no allocation
+- They require no constructor 
+- They require no extra memory 
+- No Garbage Collector work
+- Allow safe reads
+- Allow LAZY writes  
+
+# 4.2 Operations with a map
+## Read
+```
+v := m["x"] // returns zero value if key not present
+
+```
+When you try to read the value assigned to a map key that was never set, the map returns the zero value for the map's value type. 
+
+1. The fact that returns zero value if the key is not present can be useful.
+- Counting:
+```
+counts := map[string]int{}
+counts["x"]++ // safe even if "x" wasn't present
+
+```
+- set iplemented as map[T]bool:
+```
+type StringSet map[string]bool
+
+func NewStringSet() StringSet {
+    return make(StringSet)
+}
+
+func (s StringSet) Add(v string) {
+    s[v] = true
+}
+
+func (s StringSet) Remove(v string) {
+    delete(s, v)
+}
+
+func (s StringSet) Has(v string) bool {
+    return s[v] // returns false if missing
+}
+
+func (s StringSet) Size() int {
+    return len(s)
+}
+
+// usage
+s := NewStringSet()
+
+s.Add("apple")
+s.Add("banana")
+
+fmt.Println(s.Has("apple"))   // true
+fmt.Println(s.Has("orange"))  // false
+
+s.Remove("banana")
+fmt.Println(s.Has("banana"))  // false
+
+```
+This works because you cannot have duplicates keys in a map and because looking for a key that does not exist it returns the zero value of a boolean (false)
+ 
+2. But how can we differenciete between a zero (no key present) and a zero (that is the value of the key) ? We use v, ok (check existance)
+
+```
+m := map[string]int{
+    "a": 0,
+}
+
+v, ok := m["a"]
+fmt.Println(v, ok) // 0 true
+
+v, ok = m["b"]
+fmt.Println(v, ok) // 0 false
+
+```
+
+## Write
+```
+m["x"] = 42
+
+```
+
+## Delete
+```
+delete(m, "x")
+
+```
+
+## Emptying a map
+The clear function empties the map and set its length to zero.
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	m := map[string]int{"hello": 5, "world": 10}
+	clear(m)
+	fmt.Println(m, len(m)) // map[]   0
+}
+
+```
+
+## Check existence 
+
+```
+v, ok := m["x"]
+if ok {
+    fmt.Println("exists:", v)
+}
+
+```
+## Iteration
+Maps a re unordered. Iteration order is not guaranteed. 
+
+```
+for k, v := range m {
+    fmt.Println(k, v)
+}
+
+```
+
+## Conparing maps
+Maps are not comparable. You can check if they are equal to nil, but you cannot check if two maps have identical keys and values using == or !=. GO 1.21 added a package called `maps` that contains `maps.Equal` that are useful for comparing maps. 
+
+package main
+
+import (
+	"fmt"
+	"maps"
+)
+
+func main() {
+	m := map[string]int{"hello": 5, "world": 10}
+	l := map[string]int{"world": 10, "hello": 5}
+	fmt.Println(maps.Equal(m, l)) // true
+}
+
+# 4.3 Maps and concurrency
+
+The built‑in map type is not safe for concurrent writes, and even some read/write combinations can corrupt the internal hash table. This isn’t a “maybe” problem — it’s a guaranteed race condition that the runtime actively detects and panics on.
+
+- Maps are not thread‑safe. Go’s map implementation is optimized for speed, not safety. There are no internal locks, no atomic operations.
+
+So what should you do instead?
+- Option 1: Protect the map with a mutex
+- Option 2: Use sync.Map (specialized for concurrent patterns)
+- Option 3: Use channels to serialize access
+
+# 4.4. Difference between passing a map and passing a pointer to a map to a function.
+Almost always, there is no benefit to passing a pointer to a map. Maps are already reference types: A map value in Go is a small header containing a pointer to the underlying hash table + metadata. When you pass a map to a function, you’re copying only the header, not the entire table. The underlying data is shared. Modifying the map inside the function modifies the caller’s map. 
+
+YOU DON'T NEED A POINTER TO MUTATE A MAP
+
+But, if you insist, what is the difference?
+- Passing a map:
+	- You can mutate the map (insert, delete, update)
+	- You cannot reassign the map itself (i.e., replace the header)
+- Passing a pointer to a map:
+	- You can mutate the map (same as above)
+	- You can also replace the map entirely
+
+Passing a map:
+
+```
+func reset(m map[string]int) {
+    m = make(map[string]int) // modifies only the local copy of the header
+}
+
+func main() {
+    m := map[string]int{"a": 1}
+    reset(m)
+    fmt.Println(m) // still {"a": 1}
+}
+
+```
+
+Passing a pointer to a map:
+
+```
+func reset(pm *map[string]int) {
+    *pm = make(map[string]int)
+}
+
+func main() {
+    m := map[string]int{"a": 1}
+    reset(&m)
+    fmt.Println(m) // now empty
+}
+
+```
+
+When should you pass a pointer to a map?
+- When you need to replace the map entirely
+
+# 4.5 Maps of structs (map[k]T) vs maps of pointers to structs (map[k]*T)
+A map of pointers:
+```
+map[string]*User
+// allocates one object per entry on the heap
+```
+
+A map of structs:
+```
+map[string]User
+// stores the struct inside the map buckets, not as separate heap options. This means: fewer allocations, less GC work.
+```
+
+So map of structs:
+1. Avoid unnecessary heap allocations
+2. The zero value works beautifully
+```
+type Stats struct {
+    Count int
+    Sum   float64
+}
+
+m := map[string]Stats{}
+s := m["x"]
+fmt.Println(s) // {0 0}
+```
+3. They avoid accidental shared mutation
+```
+map[string]*User
+// Mutating it mutates the shared state.
+
+map[string]User
+// you get a copy. You can’t accidentally mutate the map entry unless you explicitly reassign.
+```
+
+When maps of pointers are better:
+- the struct is large
+- you mutate fields frequently
+- you want shared references
+- you want to avoid copying large values
 
 # 5. Slices (reference types)
+- A slice is a descriptor that contains 3 pieces of information: a pointer to a backing array, the length of the slice and the capacity of backing array. 
+- What makes slices so useful is that you can grow slices as needed. 
 
+# 5.1 Declaring slices
+1. Declare a nil slice
+```
+var s []int
+
+// the length is 0
+// the capacity is 0
+// s == nil is true
+// No backing array yet
+// Append works with nil slice
+
+s = append(s, 10)  
+
+```
+2. Declare an empty but non-nil slice
+
+```
+s := []int{}
+// the length is 0
+// the cap is 0
+// s != nil 
+// Backing arrays exist (zero-length)
+// append works 
+
+s = append(s, 10)
+
+```
+
+3. Create a slice with make
+```
+s := make([]int, 5)        // len=5, cap=5
+t := make([]int, 5, 10)    // len=5, cap=10 (capacity of the backing array)
+
+```
+# Zero value 
+# 5.* Slicing slices
+# 5.* Append
+# 5.* Capacity
+# 5.* Make
+# Emptying a slice
+# Copying a slice 
+# Comparing slices
+# A slice that is passed to a function can have its contents modified, but the size of the original slice cannot change.
+# You can pass a slice of any size to a function but you cannot do the same with an array
+# What is the difference bewtween passing a slice and passing a pointer to a slice?
+# Converting arrays to slices 
+# Converting slices to arrays 
+# 5.* Differences between arrays and slices
