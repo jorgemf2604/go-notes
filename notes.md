@@ -2163,7 +2163,7 @@ When maps of pointers are better:
 - you want to avoid copying large values
 
 # 5. Slices (reference types)
-- A slice is a descriptor that contains 3 pieces of information: a pointer to a backing array, the length of the slice and the capacity of backing array. 
+- A slice is a descriptor that contains 3 pieces of information: a pointer to a backing array, the length of the slice and the capacity of the slice (maximum number of elements the slice can grow to without allocating a new array). 
 - What makes slices so useful is that you can grow slices as needed. 
 
 # 5.1 Declaring slices
@@ -2200,8 +2200,97 @@ s := make([]int, 5)        // len=5, cap=5
 t := make([]int, 5, 10)    // len=5, cap=10 (capacity of the backing array)
 
 ```
-# Zero value 
-# 5.* Slicing slices
+# 5.2 Zero value
+The zero value of a slice is nil. 
+
+Under the hood this means that the length and capoacity are 0, and the underlying array pointer is nil. 
+
+```
+var s []int
+
+fmt.Println(s == nil) // true
+fmt.Println(len(s))   // 0
+fmt.Println(cap(s))   // 0
+
+```
+
+### A nil slice is different from an empty but not-nil slice
+```
+var a []int        // nil slice
+b := []int{}       // empty slice, not nil
+c := make([]int,0) // empty slice, not nil
+
+// In all of them the length and capacity is 0.
+```
+# 5.3 Slicing slices
+When you slice a slice in GO, you create a new slice header that points to the same underlying array, with its own length and capacity derived from the original. 
+
+```
+s := []int{10, 20, 30, 40, 50}
+sub := s[1:4]
+// sub contains [20 30 40]
+// length of sub is 3 (4 - 1)
+// capacity(sub) = cap(s) - 1. We count from the start of the new slice (1) to end of the underlying array. 
+```
+
+### This is why slicing from the middle reduces capacity.
+Capacity is counted from the slice’s starting index to the end of the underlying array. So when you slice from the middle, you’re moving the starting index forward, which shortens the remaining tail of the array — and that tail is what defines capacity.
+
+```
+s := []int{10, 20, 30, 40, 50}
+// len=5, cap=5
+sub := s[2:4] // [30 40]
+
+// len(sub) = 4 - 2 = 2
+// cap(sub) = 5 - 2 = 3
+
+```
+### Slices share the same underlying array
+Modifying the subslice modifies the original:
+```
+s := []int{10, 20, 30, 40, 50}
+sub := s[2:4] // [30 40]
+sub[0] = 999
+fmt.Println(s)   // [10 999 30 40 50]
+
+// Both slices point to the same backing array.
+
+```
+
+### 3-index slice 
+When you use the 2 index slice operator, you get the capacity of the underlying array
+
+```
+	// WTF is going on
+	c := [3]int{1, 2, 3}
+	d := c[:1]
+	fmt.Println("c = ", c) // [1 2 3]
+	fmt.Println("d = ", d) // [1]
+	e := d[0:2]
+	fmt.Println("e = ", e) // [1 2]  say what?
+	// the underlying array has a 3 items. When you use the 2 index slice operator, you get the capacity of the underlying array.
+	fmt.Println(len(d), cap(d)) // len = 1, cap = 3
+	fmt.Println(len(e), cap(e)) // len = 2, cap = 3
+```
+
+To prevent this, we can use three index slice operators.
+
+```
+package main
+
+import "fmt"
+
+func main() {
+	slice1 := []int{1, 2, 3}
+	slice2 := slice1[0:1:1]
+	fmt.Println(slice1) // [1 2 3]
+	fmt.Println(slice2) // [1]
+	slice3 := slice2[0:2]
+	fmt.Println(slice3) // error: slice bouns out of range [:2] with capacity 1
+}
+```
+The 3‑index slice in Go lets you set a slice’s capacity explicitly, so you can prevent it from sharing extra capacity with the original array.
+
 # 5.* Append
 # 5.* Capacity
 # 5.* Make
