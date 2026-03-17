@@ -2389,12 +2389,21 @@ s := []int{1, 2, 3, 4, 5}
 s = s[:0]
 fmt.Println(s) // []
 // the length is set to 0, the capacity stays the same, the underlying array is kept and future appends will reuse the same memory
-// You can use this when performace matters (avoids allocations) or when you want to use the slice as a reusable buffer. 
+// You can use this when performace matters (avoids new allocations) or when you want to use the slice as a reusable buffer. 
 
 ```
+
 2. 
 
+
+
+
+
 # Clearing a slice 
+
+
+
+
 
 # Copying a slice 
 # Comparing slices
