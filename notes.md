@@ -2291,10 +2291,111 @@ func main() {
 ```
 The 3‑index slice in Go lets you set a slice’s capacity explicitly, so you can prevent it from sharing extra capacity with the original array.
 
-# 5.* Append
-# 5.* Capacity
-# 5.* Make
-# Emptying a slice
+# 5.4 Append
+```
+func main() {
+	var x []int
+	x = append(x, 10)
+	fmt.Println(x)            // [10]
+	x = append(x, 20, 30, 40) // you can append multiple values
+	fmt.Println(x)            // [10, 20, 30, 40]
+	y := []int{1, 2, 3, 4, 5}
+	x = append(x, y...) // you can use the ... operator to expand an array
+	fmt.Println(x)      // [10 20 30 40 1 2 3 4 5]
+}
+
+```
+It is a compile-time error if you forget to assign the value returned from append (you need to capture the copy of the header/descriptor that is returned). Passing a slice to the append function is passing a copy of the header/descriptor slice. The header contains three pieces of information: the length of the slice, the capacity of the slice and a pointer to the underlying array. The append function uses this information to determine if the new element can fit within the existing capacity.
+
+![alt text](/images/image.png)
+
+If there is enough capacity for the new values, the length will change in the copy and the new values will be stored in the backing array. However, the length in the original slice remains unchanged. Morover, the Go runtime prevents the original slice from seeing those values, since they are beyong the length of the original slice.
+
+![alt text](/images/image2.png)
+
+If there is not enough capacity in the slice for the new values, a bigger new block of memory is allocated, values are copied over the head and the copy header will be updated (new length, capacity and new underlying array). 
+
+![alt text](/images/image3.png)
+
+
+# 5.5 Capacity
+A slice is a header/descriptor/struct with 3 fields: len, cap and a pointer to the underlying array. The underlying array is stored in a contiguous block of memory. The length is how many elements the slice currently holds, and the capacity is how many elements it can hold before needing to grow. Imagine a slice as a bookshelf: Length = number of books currently on the shelf. Capacity = total number of book slots on the shelf. You can add books until the shelf is full. When it’s full and you add one more, Go builds a bigger shelf, moves all books, and adds the new one.
+
+If the length exceeds the capacity, Go allocates a new, larger array, copies the existing elements, appends the new value, and returns a new slice header.
+
+Capacity growth rules:
+- If capacity < 256: it doubles.
+- If capacity ≥ 256: it grows by 25%. The exact formula is:
+
+```
+newCapacity = oldCapacity + (oldCapacity / 4) 
+```
+
+This strategy balances performance and memory usage.
+
+# 5.6 Make
+When you write 
+
+```
+s := make([]int, 5, 10)
+```
+
+Go allocates: 
+- a contiguous underlying array of size 10. 
+- a slice header with len = 5, cap = 10, a pointer to the underlying array. 
+
+The first elements are initialized to zero (0 for ints) and the remaining 5 elements are allocated in memeory but are not part of the slice length yet. 
+
+```
+func main() {
+	x := make([]int, 5)
+	fmt.Println(x) // [0 0 0 0 0]
+	y := make([]int, 5, 10)
+	fmt.Println(y) //  prints [0 0 0 0 0] but is more [0 0 0 0 0 _ _ _ _ _]
+	z := make([]int, 0, 10)
+	fmt.Println(z) // prints [] but think it like [_ _ _ _ _ _ _ _ _ _]
+	z = append(z, 10)
+	fmt.Println(z) // prints [10] but think it like [10 _ _ _ _ _ _ _ _ _]
+}
+```
+
+There are two forms of make for slices:
+1. make([]T, length)
+2. make([]T, length, capacity)
+
+```
+s := make([]int, 3)  // len = 3, cap = 3
+
+s := make([]int, 3, 10)  // len = 3, cap = 10
+
+```
+
+When should you use make? 
+
+- You know roughly how many elements you’ll append.
+- You want to avoid repeated allocations.
+
+```
+users := make([]User, 0, 1000)
+
+// This avoids dozens of reallocations if you expect ~1000 users.
+
+```
+
+# 5.7 Emptying a slice
+1. Reset the length to zero (but keep the capacity):
+```
+s := []int{1, 2, 3, 4, 5}
+s = s[:0]
+fmt.Println(s) // []
+// the length is set to 0, the capacity stays the same, the underlying array is kept and future appends will reuse the same memory
+// You can use this when performace matters (avoids allocations) or when you want to use the slice as a reusable buffer. 
+
+```
+2. 
+
+# Clearing a slice 
+
 # Copying a slice 
 # Comparing slices
 # A slice that is passed to a function can have its contents modified, but the size of the original slice cannot change.
