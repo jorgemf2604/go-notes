@@ -2393,17 +2393,71 @@ fmt.Println(s) // []
 
 ```
 
-2. 
+2. Reassign a new empty slice
+```
+list = []string{}  
+// empty but not nil, capacity becomes 0, you createa new slice header, old underlying array is garbage collected (if no other references exist). 
+```
+
+3. Set to nil
+
+```
+var s []int 
+s = nil
+// length=0, capacity=0, underlying array is gc, useful when nil has semantic meaning (you want to express explicitly that there is no data) 
+
+```
+
+# 5.8 Remove elements in a slice 
+
+- Remove an element:
+```
+package main
+
+import "fmt"
+
+func main() {
+    s := []string{"a", "b", "c", "d", "e"}
+
+    i := 2 // remove "c"
+    s = append(s[:i], s[i+1:]...)
+
+    fmt.Println(s) // [a b d e]
+}
+```
+
+- Remove a range of elements:
+
+```
+package main
+
+import "fmt"
+
+func main() {
+    s := []int{1, 2, 3, 4, 5, 6, 7}
+
+    start := 2 
+    end := 5   
+
+    s = append(s[:start], s[end:]...)
+
+    fmt.Println(s) // [1 2 6 7]
+}
+
+```
+
+Go does NOT have built‑in push, pop, shift, or unshift like JavaScript or Python.
+
+```
+s := []int{10, 20, 30, 40}
+
+last := s[len(s)-1] // value = 40
+s = s[:len(s)-1]    // remove last
+
+fmt.Println(last, s) // 40 [10 20 30]
 
 
-
-
-
-# Clearing a slice 
-
-
-
-
+```
 
 # Copying a slice 
 # Comparing slices
